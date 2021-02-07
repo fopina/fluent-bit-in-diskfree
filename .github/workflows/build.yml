@@ -1,0 +1,74 @@
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+    - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+name: Upload Release Asset
+
+jobs:
+  build:
+    name: Upload Release Asset
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      
+      - name: set up buildx
+        id: buildx
+        uses: crazy-max/ghaction-docker-buildx@v1
+        with:
+          version: latest
+
+      - name: Build project
+        run: |
+          mkdir -p build
+          docker buildx build \
+            --platform linux/amd64,linux/arm64,linux/arm/v7 \
+            -o build -f Dockerfile.build .
+          tar czf build/linux_amd64.tgz -C build/linux_amd64 flb-filter_math.so
+          tar czf build/linux_arm64.tgz -C build/linux_arm64 flb-filter_math.so
+          tar czf build/linux_arm_v7.tgz -C build/linux_arm_v7 flb-filter_math.so
+
+      - name: Create Release
+        id: create_release
+        uses: fopina/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+          allow_update: true
+
+      - name: Upload Release Asset
+        id: upload-release-asset-1
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/linux_amd64.tgz
+          asset_name: flb-filter_math_linux_amd64.tgz
+          asset_content_type: application/gzip
+      - name: Upload Release Asset
+        id: upload-release-asset-2
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/linux_arm64.tgz
+          asset_name: flb-filter_math_linux_arm64.tgz
+          asset_content_type: application/gzip
+      - name: Upload Release Asset
+        id: upload-release-asset-3
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/linux_arm_v7.tgz
+          asset_name: flb-filter_math_linux_arm_v7.tgz
+          asset_content_type: application/gzip
