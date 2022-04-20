@@ -11,6 +11,13 @@ RUN make
 
 RUN ls -la
 
+# stage only used for testing
+FROM fluent/fluent-bit:1.9.2 as tester
+
+COPY --from=builder /myplugin/build/flb-in_diskfree.so /
+
+RUN ["/fluent-bit/bin/fluent-bit", "-v", "-f1", "-e/flb-in_diskfree.so", "-idiskfree", "-ostdout", "-m", "*", "-oexit", "-m", "*"]
+
 FROM scratch
 
 COPY --from=builder /myplugin/build/flb-in_diskfree.so /

@@ -7,7 +7,7 @@ name: Test build
 
 jobs:
   build:
-    name: Upload Release Asset
+    name: Test build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -20,16 +20,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v2
         with:
-          outputs: build
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           file: Dockerfile.build
+          target: tester
           build-args: |
-            BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-            BUILD_VERSION=${{ steps.prepare.outputs.tag_name }} \
             FLUENT_VERSION=1.9.2
-
-      - name: Build project
-        run: |
-          tar czf build/linux_amd64.tgz -C build/linux_amd64 flb-in_mem2.so
-          tar czf build/linux_arm64.tgz -C build/linux_arm64 flb-in_mem2.so
-          tar czf build/linux_arm_v7.tgz -C build/linux_arm_v7 flb-in_mem2.so
