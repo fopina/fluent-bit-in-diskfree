@@ -1,5 +1,7 @@
 FROM fopina/fluent-bit-plugin-dev:v1.9.2-2 as builder
 
+RUN apt update && apt install -y libc-ares-dev
+
 ADD . /myplugin
 
 RUN cmake -DFLB_SOURCE=/usr/src/fluentbit/fluent-bit-1.9.2/ \

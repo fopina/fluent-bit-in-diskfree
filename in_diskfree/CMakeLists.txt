@@ -1,5 +1,4 @@
 set(src
-  mem.c
-  proc.c)
+  in_disk.c)
 
-FLB_PLUGIN(in_mem2 "${src}" "")
+FLB_PLUGIN(in_diskfree "${src}" "")

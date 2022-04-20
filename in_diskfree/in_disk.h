@@ -16,37 +16,31 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
+#ifndef FLB_IN_DISK_H
+#define FLB_IN_DISK_H
 
-#ifndef FLB_IN_MEM_H
-#define FLB_IN_MEM_H
-
-#include <fluent-bit/flb_input.h>
+#include <stdint.h>
 #include <fluent-bit/flb_config.h>
-#include <fluent-bit/flb_utils.h>
-#include <msgpack.h>
+#include <fluent-bit/flb_input.h>
 
 #define DEFAULT_INTERVAL_SEC  "1"
 #define DEFAULT_INTERVAL_NSEC "0"
 
-struct flb_in_mem_info {
-    uint64_t mem_total;
-    uint64_t mem_used;
-    uint64_t mem_free;
-    uint64_t mem_available;
-    uint64_t mem_buffer;
-    uint64_t mem_cache;
-    uint64_t swap_total;
-    uint64_t swap_used;
-    uint64_t swap_free;
+#define STR_KEY_WRITE "write_size"
+#define STR_KEY_READ  "read_size"
+
+struct flb_in_diskfree_config {
+    uint64_t  *read_total;
+    uint64_t  *write_total;
+    uint64_t  *prev_read_total;
+    uint64_t  *prev_write_total;
+    flb_sds_t dev_name;
+    int       entry;
+    int       interval_sec;
+    int       interval_nsec;
+    int       first_snapshot;   /* a feild to indicate whethor or not this is the first collect*/
 };
 
-struct flb_in_mem_config {
-    int    idx;
-    int    page_size;
-    int    interval_sec;
-    int    interval_nsec;
-    pid_t  pid;
-    struct flb_input_instance *ins;
-};
+extern struct flb_input_plugin in_diskfree_plugin;
 
-#endif
+#endif /* FLB_IN_DISK_H */

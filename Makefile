@@ -7,8 +7,8 @@ test: dev
 			fluent/fluent-bit:1.9.2 \
 			/fluent-bit/bin/fluent-bit -v \
 			-f 1 \
-			-e /myplugin/flb-in_mem2.so \
-			-i mem2 \
+			-e /myplugin/flb-in_diskfree.so \
+			-i diskfree \
 			-o stdout -m '*' \
 			-o exit -m '*'
 	docker run --rm \

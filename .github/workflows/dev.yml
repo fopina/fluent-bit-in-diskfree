@@ -3,7 +3,7 @@ on:
     branches:
     - 'dev-*'
 
-name: Upload Release Asset
+name: Test build
 
 jobs:
   build:
