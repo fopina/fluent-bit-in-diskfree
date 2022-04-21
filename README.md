@@ -62,13 +62,13 @@ Looking at [busybox df implementation](https://github.com/mirror/busybox/blob/94
 
 Simplest (all mounts with more than 0 blocks):
 
-```toml
+```ini
 [INPUT]
     Name diskfree
 ```
 
 Only ext4 filesystems
-```toml
+```ini
 [INPUT]
     Name diskfree
     Fs_Type ext4
@@ -76,7 +76,7 @@ Only ext4 filesystems
 
 Only root fs
 
-```toml
+```ini
 [INPUT]
     Name diskfree
     Mount_Point /
