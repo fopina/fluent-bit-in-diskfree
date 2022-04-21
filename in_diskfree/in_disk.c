@@ -33,91 +33,42 @@
 
 #include "in_disk.h"
 
+#include <mntent.h>
+#include <sys/statvfs.h>
+
 #define LINE_SIZE 256
 #define BUF_SIZE  32
 
-static char *shift_line(const char *line, char separator, int *idx,
-                        char *buf, int buf_size)
+static int update_disk_stats(struct flb_in_diskfree_info *info, struct mntent *mount_entry)
 {
-    char pack_mode = FLB_FALSE;
-    int  idx_buf = 0;
+    struct statvfs s;
 
-    while (1) {
-        if (line[*idx] == '\0') {
-            /* end of line */
-            return NULL;
-        }
-        else if (line[*idx] != separator) {
-            pack_mode = FLB_TRUE;
-            buf[idx_buf] = line[*idx];
-            idx_buf++;
-
-            if (idx_buf >= buf_size) {
-                buf[idx_buf-1] = '\0';
-                return NULL;
-            }
-        }
-        else if (pack_mode == FLB_TRUE) {
-            buf[idx_buf] = '\0';
-            return buf;
-        }
-        *idx += 1;
-    }
-}
-
-static int update_disk_stats(struct flb_in_diskfree_config *ctx)
-{
-    char line[LINE_SIZE] = {0};
-    char buf[BUF_SIZE] = {0};
-    char skip_line = FLB_FALSE;
-    uint64_t temp_total = 0;
-    FILE *fp  = NULL;
-    int  i_line   = 0;
-    int  i_entry = 0;
-    int  i_field = 0;
-
-    fp = fopen("/proc/diskstats", "r");
-    if (fp == NULL) {
-        flb_errno();
+    if (statvfs(mount_entry->mnt_dir, &s) != 0) {
+        perror(mount_entry->mnt_dir);
         return -1;
     }
+    // same logic as busybox df implementation
+    /* Some uclibc versions were seen to lose f_frsize
+    * (kernel does return it, but then uclibc does not copy it)
+    */
+    if (s.f_frsize == 0)
+        s.f_frsize = s.f_bsize;
+    info->f_frsize = s.f_frsize;
+    info->f_blocks = s.f_blocks;
+    info->f_bfree = s.f_bfree;
+    info->f_bavail = s.f_bavail;
 
-    while (fgets(line, LINE_SIZE-1, fp) != NULL) {
-        i_line = 0;
-        i_field = 0;
-        skip_line = FLB_FALSE;
-        while (skip_line != FLB_TRUE &&
-               shift_line(line, ' ', &i_line, buf, BUF_SIZE-1) != NULL) {
-            i_field++;
-            switch(i_field) {
-            case 3: /* device name */
-                if (ctx->dev_name != NULL && strstr(buf, ctx->dev_name) == NULL) {
-                    skip_line = FLB_TRUE;
-                }
-                break;
-            case 6: /* sectors read */
-                temp_total = strtoull(buf, NULL, 10);
-                ctx->prev_read_total[i_entry] = ctx->read_total[i_entry];
-                ctx->read_total[i_entry] = temp_total;
-                break;
-            case 10: /* sectors written */
-                temp_total = strtoull(buf, NULL, 10);
-                ctx->prev_write_total[i_entry] = ctx->write_total[i_entry];
-                ctx->write_total[i_entry] = temp_total;
-
-                skip_line = FLB_TRUE;
-                break;
-            default:
-                continue;
-            }
-        }
-        i_entry++;
-    }
-
-    fclose(fp);
     return 0;
 }
 
+static FILE* open_mount_table() {
+    FILE *mount_table = NULL;
+    mount_table = setmntent("/proc/mounts", "r");
+    if (mount_table == NULL) {
+        flb_errno();
+    }
+    return mount_table;
+}
 
 /* cb_collect callback */
 static int in_disk_collect(struct flb_input_instance *i_ins,
@@ -133,38 +84,33 @@ static int in_disk_collect(struct flb_input_instance *i_ins,
     unsigned long   read_total = 0;
     unsigned long  write_total = 0;
 
-    int entry = ctx->entry;
     int i;
     int num_map = 2;/* write, read */
 
-    update_disk_stats(ctx);
+    FILE *mount_table = open_mount_table();
+    if (mount_table == NULL) return -1;
 
-    if (ctx->first_snapshot == FLB_TRUE) {
-        ctx->first_snapshot = FLB_FALSE;    /* assign first_snapshot with FLB_FALSE */
-    }
-    else {
-        for (i = 0; i < entry; i++) {
-            if (ctx->read_total[i] >= ctx->prev_read_total[i]) {
-                read_total += ctx->read_total[i] - ctx->prev_read_total[i];
-            }
-            else {
-                /* Overflow */
-                read_total += ctx->read_total[i] +
-                    (ULONG_MAX - ctx->prev_read_total[i]);
-            }
+    struct mntent *mount_entry;
+    struct flb_in_diskfree_info info;
 
-            if (ctx->write_total[i] >= ctx->prev_write_total[i]) {
-                write_total += ctx->write_total[i] - ctx->prev_write_total[i];
-            }
-            else {
-                /* Overflow */
-                write_total += ctx->write_total[i] +
-                    (ULONG_MAX - ctx->prev_write_total[i]);
-            }
+    while (1) {
+        mount_entry = getmntent(mount_table);
+        if (!mount_entry) {
+            endmntent(mount_table);
+            break;
         }
+        if (ctx->mount_point != NULL && strcmp(mount_entry->mnt_dir, ctx->mount_point) != 0)
+            continue;
+        if (update_disk_stats(&info, mount_entry) < 0)
+            continue;
+        if (info.f_blocks == 0 && !ctx->show_all)
+            continue;
+        if (ctx->fs_type != NULL && strcmp(mount_entry->mnt_type, ctx->fs_type) != 0)
+            continue;
 
-        read_total  *= 512;
-        write_total *= 512;
+        flb_plg_trace(i_ins, "%s - %s %s %s %d %d %d %d %d", __FUNCTION__,
+                        mount_entry->mnt_fsname, mount_entry->mnt_dir, mount_entry->mnt_type,
+                        info.f_frsize, info.f_blocks, info.f_bfree, info.f_bavail);
 
         /* Initialize local msgpack buffer */
         msgpack_sbuffer_init(&mp_sbuf);
@@ -173,41 +119,34 @@ static int in_disk_collect(struct flb_input_instance *i_ins,
         /* Pack data */
         msgpack_pack_array(&mp_pck, 2);
         flb_pack_time_now(&mp_pck);
-        msgpack_pack_map(&mp_pck, num_map);
+        msgpack_pack_map(&mp_pck, 5);
 
+        msgpack_pack_str(&mp_pck, 7);
+        msgpack_pack_str_body(&mp_pck, "mnt_dir", 7);
+        msgpack_pack_str(&mp_pck, strlen(mount_entry->mnt_dir));
+        msgpack_pack_str_body(&mp_pck, mount_entry->mnt_dir, strlen(mount_entry->mnt_dir));
 
-        msgpack_pack_str(&mp_pck, strlen(STR_KEY_READ));
-        msgpack_pack_str_body(&mp_pck, STR_KEY_READ, strlen(STR_KEY_READ));
-        msgpack_pack_uint64(&mp_pck, read_total);
+        msgpack_pack_str(&mp_pck, 8);
+        msgpack_pack_str_body(&mp_pck, "f_frsize", 8);
+        msgpack_pack_uint64(&mp_pck, info.f_frsize);
 
-        msgpack_pack_str(&mp_pck, strlen(STR_KEY_WRITE));
-        msgpack_pack_str_body(&mp_pck, STR_KEY_WRITE, strlen(STR_KEY_WRITE));
-        msgpack_pack_uint64(&mp_pck, write_total);
+        msgpack_pack_str(&mp_pck, 8);
+        msgpack_pack_str_body(&mp_pck, "f_blocks", 8);
+        msgpack_pack_uint64(&mp_pck, info.f_blocks);
+
+        msgpack_pack_str(&mp_pck, 7);
+        msgpack_pack_str_body(&mp_pck, "f_bfree", 7);
+        msgpack_pack_uint64(&mp_pck, info.f_bfree);
+
+        msgpack_pack_str(&mp_pck, 8);
+        msgpack_pack_str_body(&mp_pck, "f_bavail", 8);
+        msgpack_pack_uint64(&mp_pck, info.f_bavail);
 
         flb_input_chunk_append_raw(i_ins, NULL, 0, mp_sbuf.data, mp_sbuf.size);
         msgpack_sbuffer_destroy(&mp_sbuf);
     }
 
     return 0;
-}
-
-static int get_diskstats_entries(void)
-{
-    char line[LINE_SIZE] = {0};
-    int   ret = 0;
-    FILE *fp = NULL;
-
-    fp = fopen("/proc/diskstats", "r");
-    if (fp == NULL) {
-        perror("fopen");
-        return 0;
-    }
-    while(fgets(line, LINE_SIZE-1, fp) != NULL) {
-        ret++;
-    }
-
-    fclose(fp);
-    return ret;
 }
 
 static int configure(struct flb_in_diskfree_config *disk_config,
@@ -225,43 +164,18 @@ static int configure(struct flb_in_diskfree_config *disk_config,
         return -1;
     }
 
+    FILE *mount_table = open_mount_table();
+    if (mount_table == NULL) {
+        flb_plg_error(in, "unable to list mounts.");
+        return -1;
+    }
+
     /* interval settings */
     if (disk_config->interval_sec <= 0 && disk_config->interval_nsec <= 0) {
         /* Illegal settings. Override them. */
         disk_config->interval_sec = atoi(DEFAULT_INTERVAL_SEC);
         disk_config->interval_nsec = atoi(DEFAULT_INTERVAL_NSEC);
     }
-
-    entry = get_diskstats_entries();
-    if (entry == 0) {
-        /* no entry to count */
-        return -1;
-    }
-
-    disk_config->read_total = (uint64_t*)flb_malloc(sizeof(uint64_t)*entry);
-    disk_config->write_total = (uint64_t*)flb_malloc(sizeof(uint64_t)*entry);
-    disk_config->prev_read_total = (uint64_t*)flb_malloc(sizeof(uint64_t)*entry);
-    disk_config->prev_write_total = (uint64_t*)flb_malloc(sizeof(uint64_t)*entry);
-    disk_config->entry = entry;
-
-    if ( disk_config->read_total       == NULL ||
-         disk_config->write_total      == NULL ||
-         disk_config->prev_read_total  == NULL ||
-         disk_config->prev_write_total == NULL) {
-        flb_plg_error(in, "could not allocate memory");
-        return -1;
-    }
-
-    /* initialize */
-    for (i=0; i<entry; i++) {
-        disk_config->read_total[i] = 0;
-        disk_config->write_total[i] = 0;
-        disk_config->prev_read_total[i] = 0;
-        disk_config->prev_write_total[i] = 0;
-    }
-    update_disk_stats(disk_config);
-
-    disk_config->first_snapshot = FLB_TRUE;    /* assign first_snapshot with FLB_TRUE */
 
     return 0;
 }
@@ -278,10 +192,6 @@ static int in_disk_init(struct flb_input_instance *in,
     if (disk_config == NULL) {
         return -1;
     }
-    disk_config->read_total = NULL;
-    disk_config->write_total = NULL;
-    disk_config->prev_read_total = NULL;
-    disk_config->prev_write_total = NULL;
 
     /* Initialize head config */
     ret = configure(disk_config, in);
@@ -303,10 +213,6 @@ static int in_disk_init(struct flb_input_instance *in,
     return 0;
 
   init_error:
-    flb_free(disk_config->read_total);
-    flb_free(disk_config->write_total);
-    flb_free(disk_config->prev_read_total);
-    flb_free(disk_config->prev_write_total);
     flb_free(disk_config);
     return -1;
 }
@@ -316,10 +222,6 @@ static int in_disk_exit(void *data, struct flb_config *config)
     (void) *config;
     struct flb_in_diskfree_config *disk_config = data;
 
-    flb_free(disk_config->read_total);
-    flb_free(disk_config->write_total);
-    flb_free(disk_config->prev_read_total);
-    flb_free(disk_config->prev_write_total);
     flb_free(disk_config);
     return 0;
 }
@@ -337,9 +239,19 @@ static struct flb_config_map config_map[] = {
       "Set the collector interval (nanoseconds)"
     },
     {
-      FLB_CONFIG_MAP_STR, "dev_name", (char *)NULL,
-      0, FLB_TRUE, offsetof(struct flb_in_diskfree_config, dev_name),
-      "Set the device name"
+      FLB_CONFIG_MAP_STR, "mount_point", (char *)NULL,
+      0, FLB_TRUE, offsetof(struct flb_in_diskfree_config, mount_point),
+      "Set the mount point"
+    },
+    {
+      FLB_CONFIG_MAP_STR, "fs_type", (char *)NULL,
+      0, FLB_TRUE, offsetof(struct flb_in_diskfree_config, fs_type),
+      "Collect only for this filesystem (ex: ext4)"
+    },
+    {
+      FLB_CONFIG_MAP_BOOL, "show_all", "false",
+      0, FLB_TRUE, offsetof(struct flb_in_diskfree_config, show_all),
+      "Collect all mount points, even when kernel reports 0 total blocks"
     },
     /* EOF */
     {0}

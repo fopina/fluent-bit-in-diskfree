@@ -1,1 +1,7 @@
 build
+dist
+.vscode
+.github
+LICENSE
+Makefile
+README.md

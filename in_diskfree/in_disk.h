@@ -29,16 +29,19 @@
 #define STR_KEY_WRITE "write_size"
 #define STR_KEY_READ  "read_size"
 
+struct flb_in_diskfree_info {
+    uint64_t  f_frsize;
+    uint64_t  f_blocks;
+    uint64_t  f_bfree;
+    uint64_t  f_bavail;
+};
+
 struct flb_in_diskfree_config {
-    uint64_t  *read_total;
-    uint64_t  *write_total;
-    uint64_t  *prev_read_total;
-    uint64_t  *prev_write_total;
-    flb_sds_t dev_name;
-    int       entry;
+    flb_sds_t mount_point;
+    flb_sds_t fs_type;
+    int       show_all;
     int       interval_sec;
     int       interval_nsec;
-    int       first_snapshot;   /* a feild to indicate whethor or not this is the first collect*/
 };
 
 extern struct flb_input_plugin in_diskfree_plugin;
