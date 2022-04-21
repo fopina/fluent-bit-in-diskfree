@@ -23,5 +23,3 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           file: Dockerfile.build
           target: tester
-          build-args: |
-            FLUENT_VERSION=1.9.2
