@@ -26,9 +26,9 @@ jobs:
 
       - name: Build project
         run: |
-          tar czf build/linux_amd64.tgz -C build/linux_amd64 flb-in_mem2.so
-          tar czf build/linux_arm64.tgz -C build/linux_arm64 flb-in_mem2.so
-          tar czf build/linux_arm_v7.tgz -C build/linux_arm_v7 flb-in_mem2.so
+          tar czf build/linux_amd64.tgz -C build/linux_amd64 flb-in_diskfree.so
+          tar czf build/linux_arm64.tgz -C build/linux_arm64 flb-in_diskfree.so
+          tar czf build/linux_arm_v7.tgz -C build/linux_arm_v7 flb-in_diskfree.so
 
       - name: Create Release
         id: create_release
@@ -50,7 +50,7 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: build/linux_amd64.tgz
-          asset_name: flb-in_mem2_linux_amd64.tgz
+          asset_name: flb-in_diskfree_linux_amd64.tgz
           asset_content_type: application/gzip
       - name: Upload Release Asset
         id: upload-release-asset-2
@@ -60,7 +60,7 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: build/linux_arm64.tgz
-          asset_name: flb-in_mem2_linux_arm64.tgz
+          asset_name: flb-in_diskfree_linux_arm64.tgz
           asset_content_type: application/gzip
       - name: Upload Release Asset
         id: upload-release-asset-3
@@ -70,5 +70,5 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: build/linux_arm_v7.tgz
-          asset_name: flb-in_mem2_linux_arm_v7.tgz
+          asset_name: flb-in_diskfree_linux_arm_v7.tgz
           asset_content_type: application/gzip
