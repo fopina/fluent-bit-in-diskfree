@@ -4,7 +4,7 @@ dev:
 run: dev
 	docker run --rm \
 			-v $(PWD)/dist:/myplugin \
-			fluent/fluent-bit:1.9.2 \
+			fluent/fluent-bit:2.1.2 \
 			/fluent-bit/bin/fluent-bit \
 			-f 1 \
 			-e /myplugin/flb-in_diskfree.so \

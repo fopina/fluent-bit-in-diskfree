@@ -1,10 +1,11 @@
-FROM fopina/fluent-bit-plugin-dev:v1.9.2-2 as builder
+ARG FLUENT_VERSION=2.1.2
+FROM ghcr.io/fopina/fluent-bit-plugin-dev:v${FLUENT_VERSION} as builder
 
 RUN apt update && apt install -y libc-ares-dev
 
 ADD . /myplugin
 
-RUN cmake -DFLB_SOURCE=/usr/src/fluentbit/fluent-bit-1.9.2/ \
+RUN cmake -DFLB_SOURCE=/usr/src/fluentbit/fluent-bit/ \
           -DPLUGIN_NAME=in_diskfree ../
 
 RUN make
@@ -12,7 +13,7 @@ RUN make
 RUN ls -la
 
 # stage only used for testing
-FROM fluent/fluent-bit:1.9.2 as tester
+FROM fluent/fluent-bit:${FLUENT_VERSION} as tester
 
 COPY --from=builder /myplugin/build/flb-in_diskfree.so /
 

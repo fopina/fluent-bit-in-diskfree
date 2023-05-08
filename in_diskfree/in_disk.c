@@ -25,8 +25,6 @@
 #include <fluent-bit/flb_str.h>
 #include <fluent-bit/flb_pack.h>
 
-#include <msgpack.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -74,18 +72,20 @@ static FILE* open_mount_table() {
 static int in_disk_collect(struct flb_input_instance *i_ins,
                            struct flb_config *config, void *in_context)
 {
-    struct flb_in_diskfree_config *ctx = in_context;
-    (void) *i_ins;
+    unsigned long              write_total;
+    unsigned long              read_total;
+    int                        entry;
+    struct flb_in_diskfree_config *ctx;
+    int                        ret;
+    int                        i;
     (void) *config;
-    msgpack_packer mp_pck;
-    msgpack_sbuffer mp_sbuf;
+
+    ret = 0;
+    ctx = (struct flb_in_diskfree_config *) in_context;
 
     /* The type of sector size is unsigned long in kernel source */
-    unsigned long   read_total = 0;
-    unsigned long  write_total = 0;
-
-    int i;
-    int num_map = 2;/* write, read */
+    read_total = 0;
+    write_total = 0;
 
     FILE *mount_table = open_mount_table();
     if (mount_table == NULL) return -1;
@@ -112,38 +112,51 @@ static int in_disk_collect(struct flb_input_instance *i_ins,
                         mount_entry->mnt_fsname, mount_entry->mnt_dir, mount_entry->mnt_type,
                         info.f_frsize, info.f_blocks, info.f_bfree, info.f_bavail);
 
-        /* Initialize local msgpack buffer */
-        msgpack_sbuffer_init(&mp_sbuf);
-        msgpack_packer_init(&mp_pck, &mp_sbuf, msgpack_sbuffer_write);
+        ret = flb_log_event_encoder_begin_record(&ctx->log_encoder);
 
-        /* Pack data */
-        msgpack_pack_array(&mp_pck, 2);
-        flb_pack_time_now(&mp_pck);
-        msgpack_pack_map(&mp_pck, 5);
+        if (ret == FLB_EVENT_ENCODER_SUCCESS) {
+            ret = flb_log_event_encoder_set_current_timestamp(
+                    &ctx->log_encoder);
+        }
 
-        msgpack_pack_str(&mp_pck, 7);
-        msgpack_pack_str_body(&mp_pck, "mnt_dir", 7);
-        msgpack_pack_str(&mp_pck, strlen(mount_entry->mnt_dir));
-        msgpack_pack_str_body(&mp_pck, mount_entry->mnt_dir, strlen(mount_entry->mnt_dir));
+        if (ret == FLB_EVENT_ENCODER_SUCCESS) {
+            ret = flb_log_event_encoder_append_body_values(
+                    &ctx->log_encoder,
+                    FLB_LOG_EVENT_CSTRING_VALUE("mnt_dir"),
+                    FLB_LOG_EVENT_CSTRING_VALUE(mount_entry->mnt_dir),
 
-        msgpack_pack_str(&mp_pck, 8);
-        msgpack_pack_str_body(&mp_pck, "f_frsize", 8);
-        msgpack_pack_uint64(&mp_pck, info.f_frsize);
+                    FLB_LOG_EVENT_CSTRING_VALUE("f_frsize"),
+                    FLB_LOG_EVENT_UINT64_VALUE(info.f_frsize),
 
-        msgpack_pack_str(&mp_pck, 8);
-        msgpack_pack_str_body(&mp_pck, "f_blocks", 8);
-        msgpack_pack_uint64(&mp_pck, info.f_blocks);
+                    FLB_LOG_EVENT_CSTRING_VALUE( "f_blocks"),
+                    FLB_LOG_EVENT_UINT64_VALUE(info.f_blocks),
 
-        msgpack_pack_str(&mp_pck, 7);
-        msgpack_pack_str_body(&mp_pck, "f_bfree", 7);
-        msgpack_pack_uint64(&mp_pck, info.f_bfree);
+                    FLB_LOG_EVENT_CSTRING_VALUE("f_bfree"),
+                    FLB_LOG_EVENT_UINT64_VALUE(info.f_bfree),
 
-        msgpack_pack_str(&mp_pck, 8);
-        msgpack_pack_str_body(&mp_pck, "f_bavail", 8);
-        msgpack_pack_uint64(&mp_pck, info.f_bavail);
+                    FLB_LOG_EVENT_CSTRING_VALUE("f_bavail"),
+                    FLB_LOG_EVENT_UINT64_VALUE(info.f_bavail));
+        }
 
-        flb_input_chunk_append_raw(i_ins, NULL, 0, mp_sbuf.data, mp_sbuf.size);
-        msgpack_sbuffer_destroy(&mp_sbuf);
+
+        if (ret == FLB_EVENT_ENCODER_SUCCESS) {
+            ret = flb_log_event_encoder_commit_record(&ctx->log_encoder);
+        }
+
+        if (ret == FLB_EVENT_ENCODER_SUCCESS) {
+            flb_input_log_append(i_ins, NULL, 0,
+                                 ctx->log_encoder.output_buffer,
+                                 ctx->log_encoder.output_length);
+
+            ret = 0;
+        }
+        else {
+            flb_plg_error(i_ins, "Error encoding record : %d", ret);
+
+            ret = -1;
+        }
+
+        flb_log_event_encoder_reset(&ctx->log_encoder);
     }
 
     return 0;
@@ -210,6 +223,15 @@ static int in_disk_init(struct flb_input_instance *in,
         goto init_error;
     }
 
+    ret = flb_log_event_encoder_init(&disk_config->log_encoder,
+                                     FLB_LOG_EVENT_FORMAT_DEFAULT);
+
+    if (ret != FLB_EVENT_ENCODER_SUCCESS) {
+        flb_plg_error(in, "error initializing event encoder : %d", ret);
+
+        goto init_error;
+    }
+
     return 0;
 
   init_error:
@@ -221,6 +243,8 @@ static int in_disk_exit(void *data, struct flb_config *config)
 {
     (void) *config;
     struct flb_in_diskfree_config *disk_config = data;
+
+    flb_log_event_encoder_destroy(&disk_config->log_encoder);
 
     flb_free(disk_config);
     return 0;
